@@ -1,0 +1,21 @@
+{
+  "name": "create",
+  "private": true,
+  "type": "module",
+  "module": "index.ts",
+  "dependencies": {
+    "@hono/zod-validator": "^0.9.1",
+    "bun-sqlite-migrations": "1.0.2",
+    "gramio": "^0.15.1",
+    "hono": "^4.13.13",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

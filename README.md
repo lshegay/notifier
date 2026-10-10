@@ -1,8 +1,155 @@
 # Notifier
 
+[English](#english) | [Русский](#русский)
+
+---
+
+## English
+
+A lightweight notification hub service built with **Bun**, **Hono**, and **bun:sqlite**.
+
+### Why?
+
+Modern frontend deployments are quick and effortless, but spinning up serverless functions or backend infrastructure just to send notifications can be an unnecessary hassle.
+
+If you have multiple frontends, websites, or services that simply need to send event-driven notifications (like button clicks, form submissions, or system alerts), Notifier serves as a single, self-hosted hub for all of them.
+
+### Features
+
+- **Templates with Variable Interpolation**: Use `{{variable}}` syntax in templates, replaced dynamically upon notification dispatch.
+- **Provider System**: Extensible notification channels. Built-in support for **Telegram** (via GramIO) with bot token, chat ID, and proxy configuration.
+- **Role-Based Access & JWT Auth**:
+  - `admin` role: Manage providers, templates, and users.
+  - `onlyNotify` tokens: Issue indefinite API tokens restricted strictly to sending notifications for specific allowed `template_ids`.
+- **Fast SQLite Storage**: Native `bun:sqlite` with automated migrations (`bun-sqlite-migrations`) and WAL mode for reliability and performance.
+- **Docker Ready**: Pre-configured `Dockerfile` and `docker-compose.yaml` using the official `oven/bun:1` image.
+
+### Quick Start
+
+#### Local Development
+
+```bash
+bun install
+bun run index.ts
+```
+
+#### Docker Compose
+
+```bash
+cp .env.dev .env
+docker compose up -d --build
+```
+
+#### Testing & Quality Checks
+
+```bash
+bun test
+bunx oxfmt --check .
+bunx oxlint
+```
+
+### Configuration
+
+All settings are centralized in the `CONFIG` object in [`src/config.ts`](src/config.ts) and configured via environment variables:
+
+| Environment Variable | CONFIG Field                                    | Default                       | Description                              |
+| -------------------- | ----------------------------------------------- | ----------------------------- | ---------------------------------------- |
+| `PORT`               | `CONFIG.port` / `CONFIG.PORT`                   | `3000`                        | HTTP server port                         |
+| `HOST`               | `CONFIG.host` / `CONFIG.HOST`                   | `0.0.0.0`                     | HTTP server host binding                 |
+| `DB_PATH`            | `CONFIG.dbPath` / `CONFIG.DB_PATH`              | `data/notifier.db`            | Path to SQLite database file             |
+| `JWT_SECRET`         | `CONFIG.jwtSecret` / `CONFIG.JWT_SECRET`        | `notifier-default-secret-key` | Secret key used for signing JWTs         |
+| `JWT_EXPIRES_IN`     | `CONFIG.jwtExpiresIn` / `CONFIG.JWT_EXPIRES_IN` | `3600`                        | JWT token expiration in seconds (1 hour) |
+| `NODE_ENV`           | `CONFIG.nodeEnv` / `CONFIG.NODE_ENV`            | `development`                 | Application environment mode             |
+
+### How It Works
+
+1. Deploy the service on your server using Docker Compose.
+2. Log in as an admin, create a Provider (e.g. Telegram channel/bot), and link it to a Template.
+3. Register a user/client with access to the template and obtain an indefinite JWT token (`onlyNotify: true`).
+4. Trigger `POST /notify/<template_id>` with `Authorization: Bearer <token>` and your payload arguments.
+5. Notification is rendered and dispatched instantly.
+
+### API Reference
+
+#### Authentication (`/auth`)
+
+- **`POST /auth/login`** — Authenticate and receive a JWT token (expires in 1 hour). When `"onlyNotify": true` is provided, returns an **indefinite** token restricted strictly to sending notifications (`POST /notify/:id`) for the user's assigned `template_ids`:
+  ```json
+  {
+    "email": "admin@example.com",
+    "password": "secretpassword",
+    "onlyNotify": true
+  }
+  ```
+- **`POST /auth/register`** — Register a new user (restricted to `role == 'admin'`):
+  ```json
+  {
+    "name": "Service Client",
+    "email": "client@example.com",
+    "password": "strongpassword",
+    "role": "user",
+    "template_ids": ["<template-uuid>"]
+  }
+  ```
+
+#### Providers (`/provider`)
+
+_Requires `Authorization: Bearer <token>` and `role == 'admin'`._
+
+- **`POST /provider`** — Create a notification channel provider:
+  ```json
+  {
+    "name": "Telegram Alerts Bot",
+    "type": "telegram",
+    "options": {
+      "token": "bot-token",
+      "chat_id": "-1001234567890",
+      "proxy": "http://127.0.0.1:8080"
+    }
+  }
+  ```
+- **`GET /provider`** — List all providers (filter by type: `?type=telegram`).
+- **`GET /provider/:id`** — Get provider by ID.
+- **`PUT /provider/:id`** — Update provider (`name`, `type`, `options`).
+- **`DELETE /provider/:id`** — Delete provider.
+
+#### Templates (`/template`)
+
+_Requires `Authorization: Bearer <token>` and `role == 'admin'`._
+
+- **`POST /template`** — Create a message template linked to `provider_id`:
+  ```json
+  {
+    "name": "order_shipped",
+    "content": "Order #{{order_id}} has been shipped!",
+    "provider_id": "<provider-uuid>"
+  }
+  ```
+- **`GET /template`** — List all templates (optional filter: `?provider_id=<id>`).
+- **`GET /template/:id`** — Get template by ID.
+- **`PUT /template/:id`** — Update template (`name`, `content`, `provider_id`).
+- **`DELETE /template/:id`** — Delete template.
+
+#### Notifications (`/notify`)
+
+_Requires `Authorization: Bearer <token>`. The template `:id` must be present in the authenticated user's `template_ids`._
+
+- **`POST /notify/:id`** — Send notification by template ID with argument substitution:
+  ```json
+  {
+    "args": {
+      "order_id": "42"
+    }
+  }
+  ```
+
+---
+
+## Русский
+
 Сервис уведомлений на базе Bun, Hono и bun:sqlite.
 
-## Зачем?
+### Зачем?
 
 В православном IT только недавно появились аналоги быстрого разветывания
 фронтенда как в Vercel. Но до бессерверных функций еще далеко скорее всего.
@@ -11,7 +158,7 @@
 делать уведомления по нажатии кнопки, то почему бы просто не сделать
 один хаб для всего этого.
 
-## Чо тут?
+### Чо тут?
 
 Шаблоны поддерживают простые переменные в формате {{variable}}, которые
 при рассылке заменяются на необходимые.
@@ -22,7 +169,7 @@
 А и да, сделано с не-православной нейронкой. Хотя код проверен полностью мной, так что
 проблем не должно быть.
 
-## Как использовать?
+### Как использовать?
 
 1. Развертываешь на своем сервере с помощью docker-compose
 2. Регистрируешь админа, создаешь Провайдера для конкретного фронтенда, создаешь ему Шаблон
@@ -31,7 +178,7 @@
 5. ???
 6. Профит. И не надо платить кучу бабок лишь для того, чтобы делать уведомления в тг.
 
-## Установка и запуск
+### Установка и запуск
 
 ```bash
 bun install
@@ -53,7 +200,7 @@ bunx oxfmt --check .
 bunx oxlint
 ```
 
-## Конфигурация
+### Конфигурация
 
 Все переменные окружения и настройки собраны в объекте `CONFIG` в [`src/config.ts`](src/config.ts):
 
@@ -61,14 +208,14 @@ bunx oxlint
 | -------------------- | ----------------------------------------------- | ----------------------------- | ---------------------------------- |
 | `PORT`               | `CONFIG.port` / `CONFIG.PORT`                   | `3000`                        | Порт HTTP-сервера                  |
 | `HOST`               | `CONFIG.host` / `CONFIG.HOST`                   | `0.0.0.0`                     | Хост HTTP-сервера                  |
-| `DB_PATH`            | `CONFIG.dbPath` / `CONFIG.DB_PATH`              | `notifier.db`                 | Путь к SQLite БД                   |
+| `DB_PATH`            | `CONFIG.dbPath` / `CONFIG.DB_PATH`              | `data/notifier.db`            | Путь к SQLite БД                   |
 | `JWT_SECRET`         | `CONFIG.jwtSecret` / `CONFIG.JWT_SECRET`        | `notifier-default-secret-key` | Секретный ключ для подписи JWT     |
 | `JWT_EXPIRES_IN`     | `CONFIG.jwtExpiresIn` / `CONFIG.JWT_EXPIRES_IN` | `3600`                        | Время жизни JWT в секундах (1 час) |
 | `NODE_ENV`           | `CONFIG.nodeEnv` / `CONFIG.NODE_ENV`            | `development`                 | Окружение приложения               |
 
-## API
+### API
 
-### Auth (`/auth`)
+#### Auth (`/auth`)
 
 - **`POST /auth/login`** — авторизация пользователя. Возвращает JWT-токен на 1 час. При передаче `"onlyNotify": true` выдает **бессрочный** токен, действующий исключительно для отправки уведомлений (`POST /notify/:id` по разрешенным `template_ids`):
   ```json
@@ -78,7 +225,7 @@ bunx oxlint
     "onlyNotify": true
   }
   ```
-- **`POST /auth/register`** — регистрация нового пользователя (доступна только пользователям с `role == 'admin'` или при первой инициализации системы)
+- **`POST /auth/register`** — регистрация нового пользователя (доступна только пользователям с `role == 'admin'`):
   ```json
   {
     "name": "Service Client",
@@ -89,7 +236,7 @@ bunx oxlint
   }
   ```
 
-### Providers (`/provider`)
+#### Providers (`/provider`)
 
 _Требуется заголовок `Authorization: Bearer <token>` и `role == 'admin'`._
 
@@ -110,7 +257,7 @@ _Требуется заголовок `Authorization: Bearer <token>` и `role 
 - **`PUT /provider/:id`** — обновить данные провайдера (`name`, `type`, `options`)
 - **`DELETE /provider/:id`** — удалить провайдер
 
-### Templates (`/template`)
+#### Templates (`/template`)
 
 _Требуется заголовок `Authorization: Bearer <token>` и `role == 'admin'`._
 
@@ -127,7 +274,7 @@ _Требуется заголовок `Authorization: Bearer <token>` и `role 
 - **`PUT /template/:id`** — обновить шаблон (`name`, `content`, `provider_id`)
 - **`DELETE /template/:id`** — удалить шаблон
 
-### Notifications (`/notify`)
+#### Notifications (`/notify`)
 
 _Требуется заголовок `Authorization: Bearer <token>`. Идентификатор шаблона `:id` обязательно должен присутствовать в `template_ids` авторизованного пользователя._
 

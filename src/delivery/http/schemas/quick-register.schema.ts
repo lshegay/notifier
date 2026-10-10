@@ -6,6 +6,7 @@ export const quickRegisterBodySchema = z.object({
   template_type: z.string().min(1, 'template_type is required'),
   options: z.record(z.string(), z.unknown()).optional(),
   provider_options: z.record(z.string(), z.unknown()).optional(),
+  origins: z.array(z.string()).optional(),
 });
 
 export type QuickRegisterBody = z.infer<typeof quickRegisterBodySchema>;

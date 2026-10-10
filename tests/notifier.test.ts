@@ -60,6 +60,8 @@ async function createTestApp(customTelegramRepo?: TelegramNotificationRepository
     quickRegisterHandler,
     authUsecase,
     userRepo,
+    providerRepo,
+    templateRepo,
   });
 
   // Create default admin for test operations
@@ -1117,5 +1119,235 @@ describe('Notifier Application with Providers, Templates, Telegram Dispatcher, a
       }),
     });
     expect(missingContentRes.status).toBe(400);
+  });
+
+  it('supports configuring provider origins and enforces CORS on notify endpoint', async () => {
+    const { app, adminToken, sentTelegramMessages, templateRepo, providerRepo } =
+      await createTestApp();
+
+    // 1. Create a provider with specific allowed origins
+    const createProvRes = await app.request('/provider', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'Web Alerts Provider',
+        type: 'telegram',
+        options: { token: 'bot-token', chat_id: '12345' },
+        origins: ['https://allowed-frontend.com', 'http://localhost:5173'],
+      }),
+    });
+
+    expect(createProvRes.status).toBe(201);
+    const provider = (await createProvRes.json()) as {
+      id: string;
+      origins: string[];
+    };
+    expect(provider.origins).toEqual(['https://allowed-frontend.com', 'http://localhost:5173']);
+
+    // 2. Fetch provider by ID to verify origins persistence
+    const getProvRes = await app.request(`/provider/${provider.id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(getProvRes.status).toBe(200);
+    const fetchedProv = (await getProvRes.json()) as { origins: string[] };
+    expect(fetchedProv.origins).toEqual(['https://allowed-frontend.com', 'http://localhost:5173']);
+
+    // 3. Create a template for this provider
+    const createTplRes = await app.request('/template', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'web_event',
+        content: 'Web event: {{event}}',
+        provider_id: provider.id,
+      }),
+    });
+    const template = (await createTplRes.json()) as { id: string };
+
+    // 4. Create a user with access to this template
+    const regUserRes = await app.request('/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'Web Client',
+        email: 'webclient@example.com',
+        password: 'password123',
+        template_ids: [template.id],
+      }),
+    });
+    expect(regUserRes.status).toBe(201);
+
+    const loginRes = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'webclient@example.com',
+        password: 'password123',
+        onlyNotify: true,
+      }),
+    });
+    const token = ((await loginRes.json()) as { token: string }).token;
+
+    // 5. Preflight OPTIONS request from allowed origin
+    const preflightAllowedRes = await app.request(`/notify/${template.id}`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://allowed-frontend.com',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'Content-Type, Authorization',
+      },
+    });
+    expect(preflightAllowedRes.status).toBe(204);
+    expect(preflightAllowedRes.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://allowed-frontend.com'
+    );
+    expect(preflightAllowedRes.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+
+    // 6. Preflight OPTIONS request from disallowed origin
+    const preflightDisallowedRes = await app.request(`/notify/${template.id}`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://evil-hacker.com',
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+    expect(preflightDisallowedRes.status).toBe(204);
+    expect(preflightDisallowedRes.headers.get('Access-Control-Allow-Origin')).toBeNull();
+
+    // 7. POST /notify/:id from allowed origin -> succeeds
+    const postAllowedRes = await app.request(`/notify/${template.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        Origin: 'https://allowed-frontend.com',
+      },
+      body: JSON.stringify({ args: { event: 'button_clicked' } }),
+    });
+    expect(postAllowedRes.status).toBe(200);
+    expect(postAllowedRes.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://allowed-frontend.com'
+    );
+    expect(sentTelegramMessages.length).toBe(1);
+    expect(sentTelegramMessages[0].text).toBe('Web event: button_clicked');
+
+    // 8. POST /notify/:id from disallowed origin -> 403 Forbidden
+    const postDisallowedRes = await app.request(`/notify/${template.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        Origin: 'https://evil-hacker.com',
+      },
+      body: JSON.stringify({ args: { event: 'malicious_event' } }),
+    });
+    expect(postDisallowedRes.status).toBe(403);
+    const postDisallowedBody = (await postDisallowedRes.json()) as { error: string };
+    expect(postDisallowedBody.error).toContain('Origin');
+    expect(postDisallowedBody.error).toContain('not allowed');
+    // Notification count must remain 1 (not dispatched!)
+    expect(sentTelegramMessages.length).toBe(1);
+
+    // 9. POST /notify/:id without Origin header (server-to-server request) -> succeeds
+    const serverRequestRes = await app.request(`/notify/${template.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ args: { event: 'server_event' } }),
+    });
+    expect(serverRequestRes.status).toBe(200);
+    expect(sentTelegramMessages.length).toBe(2);
+
+    // 10. Update provider origins to wildcard ['*']
+    const updateProvRes = await app.request(`/provider/${provider.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        origins: ['*'],
+      }),
+    });
+    expect(updateProvRes.status).toBe(200);
+    const updatedProv = (await updateProvRes.json()) as { origins: string[] };
+    expect(updatedProv.origins).toEqual(['*']);
+
+    // Now previously blocked origin is allowed!
+    const previouslyBlockedRes = await app.request(`/notify/${template.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        Origin: 'https://evil-hacker.com',
+      },
+      body: JSON.stringify({ args: { event: 'now_allowed' } }),
+    });
+    expect(previouslyBlockedRes.status).toBe(200);
+    expect(previouslyBlockedRes.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://evil-hacker.com'
+    );
+    expect(sentTelegramMessages.length).toBe(3);
+
+    // 11. Quick register with origins
+    const quickRegWithOriginsRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'app_alerts',
+        content: 'App: {{text}}',
+        template_type: 'telegram',
+        origins: ['https://myapp.org'],
+      }),
+    });
+    expect(quickRegWithOriginsRes.status).toBe(201);
+    const quickData = (await quickRegWithOriginsRes.json()) as {
+      jwt_token: string;
+      template_id: string;
+    };
+
+    // Verify provider has origins: ['https://myapp.org']
+    const quickTpl = await templateRepo.findById(quickData.template_id);
+    const quickProv = await providerRepo.findById(quickTpl!.provider_id);
+    expect(quickProv?.origins).toEqual(['https://myapp.org']);
+
+    // Sending from https://myapp.org works
+    const myAppNotifyRes = await app.request(`/notify/${quickData.template_id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${quickData.jwt_token}`,
+        Origin: 'https://myapp.org',
+      },
+      body: JSON.stringify({ args: { text: 'ok' } }),
+    });
+    expect(myAppNotifyRes.status).toBe(200);
+    expect(myAppNotifyRes.headers.get('Access-Control-Allow-Origin')).toBe('https://myapp.org');
+
+    // Sending from other origin returns 403
+    const blockedQuickRes = await app.request(`/notify/${quickData.template_id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${quickData.jwt_token}`,
+        Origin: 'https://not-my-app.org',
+      },
+      body: JSON.stringify({ args: { text: 'blocked' } }),
+    });
+    expect(blockedQuickRes.status).toBe(403);
   });
 });

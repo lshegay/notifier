@@ -8,6 +8,7 @@ type ProviderRow = {
   name: string;
   type: string;
   options: string;
+  origins: string;
   created_at: string;
   updated_at: string;
 };
@@ -23,11 +24,22 @@ export class SqliteProviderRepository implements ProviderRepository {
       options = {};
     }
 
+    let origins: string[] = [];
+    try {
+      origins = JSON.parse(row.origins || '[]');
+      if (!Array.isArray(origins)) {
+        origins = [];
+      }
+    } catch {
+      origins = [];
+    }
+
     return {
       id: row.id,
       name: row.name,
       type: row.type,
       options,
+      origins,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     };
@@ -51,17 +63,20 @@ export class SqliteProviderRepository implements ProviderRepository {
     const updatedAt = now.toISOString();
     const options = data.options ?? {};
     const optionsJson = JSON.stringify(options);
+    const origins = data.origins ?? [];
+    const originsJson = JSON.stringify(origins);
 
     this.db
       .prepare(
-        `INSERT INTO providers (id, name, type, options, created_at, updated_at)
-         VALUES ($id, $name, $type, $options, $createdAt, $updatedAt)`
+        `INSERT INTO providers (id, name, type, options, origins, created_at, updated_at)
+         VALUES ($id, $name, $type, $options, $origins, $createdAt, $updatedAt)`
       )
       .run({
         $id: id,
         $name: data.name,
         $type: data.type,
         $options: optionsJson,
+        $origins: originsJson,
         $createdAt: createdAt,
         $updatedAt: updatedAt,
       });
@@ -71,6 +86,7 @@ export class SqliteProviderRepository implements ProviderRepository {
       name: data.name,
       type: data.type,
       options,
+      origins,
       createdAt: now,
       updatedAt: now,
     };
@@ -86,12 +102,13 @@ export class SqliteProviderRepository implements ProviderRepository {
     const name = data.name !== undefined ? data.name : current.name;
     const type = data.type !== undefined ? data.type : current.type;
     const options = data.options !== undefined ? data.options : current.options;
+    const origins = data.origins !== undefined ? data.origins : current.origins;
     const updatedAt = now.toISOString();
 
     this.db
       .prepare(
         `UPDATE providers
-         SET name = $name, type = $type, options = $options, updated_at = $updatedAt
+         SET name = $name, type = $type, options = $options, origins = $origins, updated_at = $updatedAt
          WHERE id = $id`
       )
       .run({
@@ -99,6 +116,7 @@ export class SqliteProviderRepository implements ProviderRepository {
         $name: name,
         $type: type,
         $options: JSON.stringify(options),
+        $origins: JSON.stringify(origins),
         $updatedAt: updatedAt,
       });
 
@@ -107,6 +125,7 @@ export class SqliteProviderRepository implements ProviderRepository {
       name,
       type,
       options,
+      origins,
       createdAt: current.createdAt,
       updatedAt: now,
     };

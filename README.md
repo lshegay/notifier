@@ -106,7 +106,8 @@ _Requires `Authorization: Bearer <token>` and `role == 'admin'`._
       "token": "bot-token",
       "chat_id": "-1001234567890",
       "proxy": "http://127.0.0.1:8080"
-    }
+    },
+    "origins": ["https://my-frontend.com", "http://localhost:3000"]
   }
   ```
   Response (`201 Created`):
@@ -117,13 +118,13 @@ _Requires `Authorization: Bearer <token>` and `role == 'admin'`._
     "id": "3c90c3ae-..."
   }
   ```
-  _(The `options` field is optional; default placeholder values are used if omitted)._
+  _(The `options` and `origins` fields are optional; default placeholder values are used if omitted)._
 
 #### Providers (`/provider`)
 
 _Requires `Authorization: Bearer <token>` and `role == 'admin'`._
 
-- **`POST /provider`** — Create a notification channel provider:
+- **`POST /provider`** — Create a notification channel provider (specify `origins` to allow browser CORS requests to `/notify`):
   ```json
   {
     "name": "Telegram Alerts Bot",
@@ -132,12 +133,13 @@ _Requires `Authorization: Bearer <token>` and `role == 'admin'`._
       "token": "bot-token",
       "chat_id": "-1001234567890",
       "proxy": "http://127.0.0.1:8080"
-    }
+    },
+    "origins": ["https://my-frontend.com", "http://localhost:3000"]
   }
   ```
 - **`GET /provider`** — List all providers (filter by type: `?type=telegram`).
 - **`GET /provider/:id`** — Get provider by ID.
-- **`PUT /provider/:id`** — Update provider (`name`, `type`, `options`).
+- **`PUT /provider/:id`** — Update provider (`name`, `type`, `options`, `origins`).
 - **`DELETE /provider/:id`** — Delete provider.
 
 #### Templates (`/template`)
@@ -160,6 +162,7 @@ _Requires `Authorization: Bearer <token>` and `role == 'admin'`._
 #### Notifications (`/notify`)
 
 _Requires `Authorization: Bearer <token>`. The template `:id` must be present in the authenticated user's `template_ids`._
+_CORS enabled: Browser requests (`Origin` header and preflight `OPTIONS`) are validated against the `origins` configured in the template's provider (use `"*"` to allow all)._
 
 - **`POST /notify/:id`** — Send notification by template ID with argument substitution:
   ```json
@@ -277,7 +280,8 @@ _Требуется заголовок `Authorization: Bearer <token>` и `role 
       "token": "bot-token",
       "chat_id": "-1001234567890",
       "proxy": "http://127.0.0.1:8080"
-    }
+    },
+    "origins": ["https://my-frontend.com", "http://localhost:3000"]
   }
   ```
   Ответ (`201 Created`):
@@ -288,13 +292,13 @@ _Требуется заголовок `Authorization: Bearer <token>` и `role 
     "id": "3c90c3ae-..."
   }
   ```
-  _(Параметр `options` опционален — если не передан, подставляются значения по умолчанию)._
+  _(Параметры `options` и `origins` опциональны — если не переданы, подставляются значения по умолчанию)._
 
 #### Providers (`/provider`)
 
 _Требуется заголовок `Authorization: Bearer <token>` и `role == 'admin'`._
 
-- **`POST /provider`** — создать провайдер (канал отправки уведомлений)
+- **`POST /provider`** — создать провайдер (канал отправки уведомлений; укажите `origins` для разрешения CORS-запросов из браузера к `/notify`):
   ```json
   {
     "name": "Telegram Alerts Bot",
@@ -303,12 +307,13 @@ _Требуется заголовок `Authorization: Bearer <token>` и `role 
       "token": "bot-token",
       "chat_id": "-1001234567890",
       "proxy": "http://127.0.0.1:8080"
-    }
+    },
+    "origins": ["https://my-frontend.com", "http://localhost:3000"]
   }
   ```
 - **`GET /provider`** — получить список всех провайдеров (поддерживается фильтр по типу: `?type=telegram`)
 - **`GET /provider/:id`** — получить провайдер по ID
-- **`PUT /provider/:id`** — обновить данные провайдера (`name`, `type`, `options`)
+- **`PUT /provider/:id`** — обновить данные провайдера (`name`, `type`, `options`, `origins`)
 - **`DELETE /provider/:id`** — удалить провайдер
 
 #### Templates (`/template`)
@@ -331,6 +336,7 @@ _Требуется заголовок `Authorization: Bearer <token>` и `role 
 #### Notifications (`/notify`)
 
 _Требуется заголовок `Authorization: Bearer <token>`. Идентификатор шаблона `:id` обязательно должен присутствовать в `template_ids` авторизованного пользователя._
+_Включена поддержка CORS: браузерные запросы (заголовок `Origin` и preflight-запросы `OPTIONS`) валидируются по списку `origins` провайдера, привязанного к шаблону (используйте `"*"` для разрешения любых доменов)._
 
 - **`POST /notify/:id`** — отправить уведомление по ID шаблона с подстановкой аргументов
   ```json

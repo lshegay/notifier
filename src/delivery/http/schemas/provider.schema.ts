@@ -19,6 +19,7 @@ export const createProviderBodySchema = z
         message: `Invalid provider type. Supported types: ${supportedNotificationTypes.join(', ')}`,
       }),
     options: z.record(z.string(), z.unknown()).optional().default({}),
+    origins: z.array(z.string()).optional().default([]),
   })
   .superRefine((data, ctx) => {
     if (data.type === NotificationType.TELEGRAM) {
@@ -47,11 +48,16 @@ export const updateProviderBodySchema = z
       })
       .optional(),
     options: z.record(z.string(), z.unknown()).optional(),
+    origins: z.array(z.string()).optional(),
   })
   .refine(
-    (data) => data.name !== undefined || data.type !== undefined || data.options !== undefined,
+    (data) =>
+      data.name !== undefined ||
+      data.type !== undefined ||
+      data.options !== undefined ||
+      data.origins !== undefined,
     {
-      message: "At least one of 'name', 'type', or 'options' must be provided",
+      message: "At least one of 'name', 'type', 'options', or 'origins' must be provided",
     }
   )
   .superRefine((data, ctx) => {

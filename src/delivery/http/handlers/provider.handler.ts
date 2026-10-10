@@ -19,8 +19,8 @@ export class ProviderHandler {
   constructor(private readonly providerUsecase: ProviderUsecase) {}
 
   async create(c: CreateProviderContext): Promise<Response> {
-    const { name, type, options } = c.req.valid('json');
-    const created = await this.providerUsecase.createProvider({ name, type, options });
+    const data = c.req.valid('json');
+    const created = await this.providerUsecase.createProvider(data);
     return c.json(created, 201);
   }
 

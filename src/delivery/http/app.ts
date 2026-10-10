@@ -1,4 +1,5 @@
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
+import { cors } from 'hono/cors';
 import type { ProviderHandler } from './handlers/provider.handler';
 import type { TemplateHandler } from './handlers/template.handler';
 import type { NotifyHandler } from './handlers/notify.handler';
@@ -6,6 +7,8 @@ import type { AuthHandler } from './handlers/auth.handler';
 import type { QuickRegisterHandler } from './handlers/quick-register.handler';
 import type { AuthUsecase } from '../../usecase/auth.usecase';
 import type { UserRepository } from '../../usecase/user.repository';
+import type { ProviderRepository } from '../../usecase/provider.repository';
+import type { TemplateRepository } from '../../usecase/template.repository';
 import { validate } from './schemas/validator';
 import {
   providerIdParamSchema,
@@ -44,6 +47,8 @@ export type AppDependencies = {
   quickRegisterHandler: QuickRegisterHandler;
   authUsecase: AuthUsecase;
   userRepo: UserRepository;
+  providerRepo: ProviderRepository;
+  templateRepo: TemplateRepository;
 };
 
 export function createHonoApp(deps: AppDependencies): Hono {
@@ -55,12 +60,87 @@ export function createHonoApp(deps: AppDependencies): Hono {
     quickRegisterHandler,
     authUsecase,
     userRepo,
+    providerRepo,
+    templateRepo,
   } = deps;
   const app = new Hono();
 
   const authMiddleware = authenticate(authUsecase, userRepo);
   const adminMiddleware = requireRole('admin');
   const templateAccessMiddleware = requireTemplateAccess();
+
+  // Helper to fetch allowed origins from the provider linked to a template
+  const getAllowedOriginsForTemplate = async (templateId: string): Promise<string[] | null> => {
+    const template = await templateRepo.findById(templateId);
+    if (!template) {
+      return null;
+    }
+    const provider = await providerRepo.findById(template.provider_id);
+    if (!provider) {
+      return null;
+    }
+    return provider.origins ?? [];
+  };
+
+  const isOriginAllowed = (origin: string, allowedOrigins: string[]): boolean => {
+    const normalizedOrigin = origin.trim().replace(/\/$/, '').toLowerCase();
+    return allowedOrigins.some((pattern) => {
+      const trimmed = pattern.trim().toLowerCase();
+      if (trimmed === '*') {
+        return true;
+      }
+      return trimmed.replace(/\/$/, '') === normalizedOrigin;
+    });
+  };
+
+  // 1. General CORS for non-notify routes
+  app.use('*', async (c, next) => {
+    if (c.req.path.startsWith('/notify/')) {
+      return next();
+    }
+    return cors()(c, next);
+  });
+
+  // 2. CORS middleware for /notify/:id based on provider.origins
+  app.use(
+    '/notify/:id',
+    cors({
+      origin: async (origin, c) => {
+        const templateId = c.req.param('id');
+        if (!templateId || !origin) {
+          return null;
+        }
+        const allowedOrigins = await getAllowedOriginsForTemplate(templateId);
+        if (!allowedOrigins) {
+          return null;
+        }
+        return isOriginAllowed(origin, allowedOrigins) ? origin : null;
+      },
+      allowMethods: ['POST', 'OPTIONS'],
+      allowHeaders: ['Content-Type', 'Authorization'],
+    })
+  );
+
+  // 3. Origin verification middleware for POST /notify/:id
+  const requireAllowedOrigin = (): MiddlewareHandler => {
+    return async (c, next) => {
+      const origin = c.req.header('origin');
+      if (origin) {
+        const templateId = c.req.param('id');
+        if (templateId) {
+          const allowedOrigins = await getAllowedOriginsForTemplate(templateId);
+          if (allowedOrigins) {
+            if (!isOriginAllowed(origin, allowedOrigins)) {
+              throw new ForbiddenError(
+                `Origin '${origin}' is not allowed to send notifications for this template`
+              );
+            }
+          }
+        }
+      }
+      await next();
+    };
+  };
 
   // Error handling middleware
   app.onError((err, c) => {
@@ -169,6 +249,7 @@ export function createHonoApp(deps: AppDependencies): Hono {
   // POST /notify/:id
   app.post(
     '/notify/:id',
+    requireAllowedOrigin(),
     authMiddleware,
     templateAccessMiddleware,
     validate('param', notifyParamSchema),

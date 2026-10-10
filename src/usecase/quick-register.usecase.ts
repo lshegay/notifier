@@ -10,6 +10,7 @@ export type QuickRegisterDTO = {
   template_type: string;
   options?: Record<string, unknown>;
   provider_options?: Record<string, unknown>;
+  origins?: string[];
 };
 
 export type QuickRegisterResult = {
@@ -61,6 +62,7 @@ export class QuickRegisterUsecase {
       name: entityName,
       type: normalizedType,
       options: providerOptions,
+      origins: dto.origins ?? [],
     });
 
     // 2. Create template with message content

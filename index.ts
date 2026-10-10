@@ -56,6 +56,8 @@ const app = createHonoApp({
   quickRegisterHandler,
   authUsecase,
   userRepo: userRepository,
+  providerRepo: providerRepository,
+  templateRepo: templateRepository,
 });
 
 // 6. Start HTTP server

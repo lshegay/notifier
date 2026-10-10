@@ -6,6 +6,7 @@ export type Provider = {
   name: string;
   type: NotificationType | string;
   options: Record<string, unknown>;
+  origins: string[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -14,12 +15,14 @@ export type CreateProviderDTO = {
   name: string;
   type: NotificationType | string;
   options?: Record<string, unknown>;
+  origins?: string[];
 };
 
 export type UpdateProviderDTO = {
   name?: string;
   type?: NotificationType | string;
   options?: Record<string, unknown>;
+  origins?: string[];
 };
 
 export type TelegramProviderOptions = {

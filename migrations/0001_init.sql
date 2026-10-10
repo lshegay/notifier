@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS providers (
   name TEXT NOT NULL,
   type TEXT NOT NULL,
   options TEXT NOT NULL DEFAULT '{}',
+  origins TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

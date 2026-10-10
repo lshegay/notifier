@@ -38,10 +38,17 @@ export class ProviderUsecase {
       validateTelegramOptions(dto.options);
     }
 
+    if (dto.origins !== undefined) {
+      if (!Array.isArray(dto.origins) || !dto.origins.every((o) => typeof o === 'string')) {
+        throw new ValidationError("Provider 'origins' must be an array of strings");
+      }
+    }
+
     return this.providerRepo.create({
       name: dto.name.trim(),
       type: normalizedType,
       options: dto.options ?? {},
+      origins: dto.origins ?? [],
     });
   }
 
@@ -61,12 +68,25 @@ export class ProviderUsecase {
   }
 
   async updateProvider(id: string, dto: UpdateProviderDTO): Promise<Provider> {
-    if (dto.name === undefined && dto.type === undefined && dto.options === undefined) {
-      throw new ValidationError("At least one of 'name', 'type', or 'options' must be provided");
+    if (
+      dto.name === undefined &&
+      dto.type === undefined &&
+      dto.options === undefined &&
+      dto.origins === undefined
+    ) {
+      throw new ValidationError(
+        "At least one of 'name', 'type', 'options', or 'origins' must be provided"
+      );
     }
 
     if (dto.name !== undefined && (typeof dto.name !== 'string' || !dto.name.trim())) {
       throw new ValidationError('Provider name must be a non-empty string');
+    }
+
+    if (dto.origins !== undefined) {
+      if (!Array.isArray(dto.origins) || !dto.origins.every((o) => typeof o === 'string')) {
+        throw new ValidationError("Provider 'origins' must be an array of strings");
+      }
     }
 
     let normalizedType: string | undefined;
@@ -106,6 +126,7 @@ export class ProviderUsecase {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
       ...(normalizedType !== undefined ? { type: normalizedType } : {}),
       ...(dto.options !== undefined ? { options: dto.options } : {}),
+      ...(dto.origins !== undefined ? { origins: dto.origins } : {}),
     });
 
     if (!updated) {

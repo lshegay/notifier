@@ -60,6 +60,7 @@ All settings are centralized in the `CONFIG` object in [`src/config.ts`](src/con
 | `JWT_SECRET`         | `CONFIG.jwtSecret` / `CONFIG.JWT_SECRET`        | `notifier-default-secret-key` | Secret key used for signing JWTs         |
 | `JWT_EXPIRES_IN`     | `CONFIG.jwtExpiresIn` / `CONFIG.JWT_EXPIRES_IN` | `3600`                        | JWT token expiration in seconds (1 hour) |
 | `NODE_ENV`           | `CONFIG.nodeEnv` / `CONFIG.NODE_ENV`            | `development`                 | Application environment mode             |
+| `PATH_PREFIX`        | `CONFIG.pathPrefix` / `CONFIG.PATH_PREFIX`      | `""` (empty)                  | Optional path prefix for all endpoints   |
 
 ### How It Works
 
@@ -70,6 +71,9 @@ All settings are centralized in the `CONFIG` object in [`src/config.ts`](src/con
 5. Notification is rendered and dispatched instantly.
 
 ### API Reference
+
+> [!NOTE]
+> If `PATH_PREFIX` is configured (e.g. `/api`), all endpoints are mounted under that path (e.g. `POST /api/notify/:id`, `GET /api/provider`).
 
 #### Authentication (`/auth`)
 
@@ -242,8 +246,12 @@ bunx oxlint
 | `JWT_SECRET`         | `CONFIG.jwtSecret` / `CONFIG.JWT_SECRET`        | `notifier-default-secret-key` | Секретный ключ для подписи JWT     |
 | `JWT_EXPIRES_IN`     | `CONFIG.jwtExpiresIn` / `CONFIG.JWT_EXPIRES_IN` | `3600`                        | Время жизни JWT в секундах (1 час) |
 | `NODE_ENV`           | `CONFIG.nodeEnv` / `CONFIG.NODE_ENV`            | `development`                 | Окружение приложения               |
+| `PATH_PREFIX`        | `CONFIG.pathPrefix` / `CONFIG.PATH_PREFIX`      | `""` (пусто)                  | Опциональный префикс пути ручек    |
 
 ### API
+
+> [!NOTE]
+> Если задан `PATH_PREFIX` (например, `/api`), все ручки приложения монтируются с этим префиксом (например, `POST /api/notify/:id`, `GET /api/provider`).
 
 #### Auth (`/auth`)
 

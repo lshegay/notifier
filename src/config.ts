@@ -1,3 +1,15 @@
+export function normalizePrefix(prefix?: string): string {
+  if (!prefix) {
+    return '';
+  }
+  const trimmed = prefix.trim();
+  if (!trimmed || trimmed === '/') {
+    return '';
+  }
+  const withLeading = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return withLeading.replace(/\/+$/, '');
+}
+
 export type Config = {
   PORT: number;
   DB_PATH: string;
@@ -5,12 +17,14 @@ export type Config = {
   JWT_EXPIRES_IN: number;
   HOST: string;
   NODE_ENV: string;
+  PATH_PREFIX: string;
   port: number;
   dbPath: string;
   jwtSecret: string;
   jwtExpiresIn: number;
   host: string;
   nodeEnv: string;
+  pathPrefix: string;
 };
 
 export const CONFIG = {
@@ -20,6 +34,7 @@ export const CONFIG = {
   JWT_EXPIRES_IN: Number(process.env.JWT_EXPIRES_IN) || 3600,
   HOST: process.env.HOST ?? '0.0.0.0',
   NODE_ENV: process.env.NODE_ENV ?? 'development',
+  PATH_PREFIX: normalizePrefix(process.env.PATH_PREFIX ?? process.env.API_PREFIX ?? ''),
 
   get port(): number {
     return this.PORT;
@@ -38,5 +53,8 @@ export const CONFIG = {
   },
   get nodeEnv(): string {
     return this.NODE_ENV;
+  },
+  get pathPrefix(): string {
+    return this.PATH_PREFIX;
   },
 };

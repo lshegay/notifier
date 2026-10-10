@@ -18,9 +18,12 @@ import { NotificationType, renderTemplate } from '../src/domain/notification';
 import { type TelegramProviderOptions, validateTelegramOptions } from '../src/domain/provider';
 import type { TelegramNotificationRepository } from '../src/usecase/notify.telegram.repository';
 import { createHonoApp } from '../src/delivery/http/app';
-import { CONFIG } from '../src/config';
+import { CONFIG, normalizePrefix } from '../src/config';
 
-async function createTestApp(customTelegramRepo?: TelegramNotificationRepository) {
+async function createTestApp(
+  customTelegramRepo?: TelegramNotificationRepository,
+  pathPrefix?: string
+) {
   const db = createDatabase({ dbPath: ':memory:' });
   const providerRepo = new SqliteProviderRepository(db);
   const templateRepo = new SqliteTemplateRepository(db);
@@ -62,6 +65,7 @@ async function createTestApp(customTelegramRepo?: TelegramNotificationRepository
     userRepo,
     providerRepo,
     templateRepo,
+    pathPrefix,
   });
 
   // Create default admin for test operations
@@ -934,6 +938,7 @@ describe('Notifier Application with Providers, Templates, Telegram Dispatcher, a
     expect(typeof CONFIG.JWT_EXPIRES_IN).toBe('number');
     expect(typeof CONFIG.HOST).toBe('string');
     expect(typeof CONFIG.NODE_ENV).toBe('string');
+    expect(typeof CONFIG.PATH_PREFIX).toBe('string');
 
     // Test camelCase getters
     expect(CONFIG.port).toBe(CONFIG.PORT);
@@ -942,6 +947,7 @@ describe('Notifier Application with Providers, Templates, Telegram Dispatcher, a
     expect(CONFIG.jwtExpiresIn).toBe(CONFIG.JWT_EXPIRES_IN);
     expect(CONFIG.host).toBe(CONFIG.HOST);
     expect(CONFIG.nodeEnv).toBe(CONFIG.NODE_ENV);
+    expect(CONFIG.pathPrefix).toBe(CONFIG.PATH_PREFIX);
   });
 
   it('performs quick registration creating provider, template, user, and returns working notify token', async () => {
@@ -1349,5 +1355,112 @@ describe('Notifier Application with Providers, Templates, Telegram Dispatcher, a
       body: JSON.stringify({ args: { text: 'blocked' } }),
     });
     expect(blockedQuickRes.status).toBe(403);
+  });
+
+  it('supports configurable path prefix for all endpoints', async () => {
+    // Test prefix normalization helper
+    expect(normalizePrefix('')).toBe('');
+    expect(normalizePrefix('/')).toBe('');
+    expect(normalizePrefix('api')).toBe('/api');
+    expect(normalizePrefix('/api')).toBe('/api');
+    expect(normalizePrefix('/api/')).toBe('/api');
+    expect(normalizePrefix('/api/v1/')).toBe('/api/v1');
+
+    // Create test app with path prefix '/api/v1'
+    const { app, adminToken, sentTelegramMessages } = await createTestApp(undefined, '/api/v1');
+
+    // 1. Root-level paths should return 404
+    const rootRes = await app.request('/provider', {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(rootRes.status).toBe(404);
+
+    // 2. Prefixed provider route should succeed
+    const createProvRes = await app.request('/api/v1/provider', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'Prefixed Bot',
+        type: 'telegram',
+        options: { token: 'bot:prefix', chat_id: '123' },
+        origins: ['https://client.example.com'],
+      }),
+    });
+    expect(createProvRes.status).toBe(201);
+    const prov = (await createProvRes.json()) as { id: string };
+
+    // 3. Prefixed template route should succeed
+    const createTplRes = await app.request('/api/v1/template', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'prefixed_tpl',
+        content: 'Alert: {{text}}',
+        provider_id: prov.id,
+      }),
+    });
+    expect(createTplRes.status).toBe(201);
+    const tpl = (await createTplRes.json()) as { id: string };
+
+    // 4. Prefixed quick-register route should succeed
+    const quickRes = await app.request('/api/v1/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'quick_prefixed',
+        content: 'Quick: {{msg}}',
+        template_type: 'telegram',
+        origins: ['https://client.example.com'],
+      }),
+    });
+    expect(quickRes.status).toBe(201);
+    const quickData = (await quickRes.json()) as { jwt_token: string; template_id: string };
+
+    // 5. CORS preflight on prefixed notify route
+    const corsOptionsRes = await app.request(`/api/v1/notify/${tpl.id}`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://client.example.com',
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+    expect(corsOptionsRes.status).toBe(204);
+    expect(corsOptionsRes.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://client.example.com'
+    );
+
+    // 6. Prefixed notify dispatch
+    const notifyRes = await app.request(`/api/v1/notify/${quickData.template_id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${quickData.jwt_token}`,
+        Origin: 'https://client.example.com',
+      },
+      body: JSON.stringify({ args: { msg: 'Hello prefix!' } }),
+    });
+    expect(notifyRes.status).toBe(200);
+    expect(sentTelegramMessages.some((m) => m.text === 'Quick: Hello prefix!')).toBe(true);
+
+    // 7. Disallowed origin on prefixed notify route returns 403
+    const blockedNotifyRes = await app.request(`/api/v1/notify/${quickData.template_id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${quickData.jwt_token}`,
+        Origin: 'https://forbidden-origin.com',
+      },
+      body: JSON.stringify({ args: { msg: 'blocked' } }),
+    });
+    expect(blockedNotifyRes.status).toBe(403);
   });
 });

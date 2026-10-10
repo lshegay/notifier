@@ -58,6 +58,7 @@ const app = createHonoApp({
   userRepo: userRepository,
   providerRepo: providerRepository,
   templateRepo: templateRepository,
+  pathPrefix: CONFIG.pathPrefix,
 });
 
 // 6. Start HTTP server
@@ -66,4 +67,7 @@ const server = startServer(app, {
   hostname: CONFIG.host,
 });
 
-console.log(`🚀 Notifier server (Hono) is running on http://${server.hostname}:${server.port}`);
+const prefixInfo = CONFIG.pathPrefix ? ` with prefix '${CONFIG.pathPrefix}'` : '';
+console.log(
+  `🚀 Notifier server (Hono) is running on http://${server.hostname}:${server.port}${prefixInfo}`
+);

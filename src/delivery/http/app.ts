@@ -29,6 +29,7 @@ import {
   requireRole,
   requireTemplateAccess,
 } from './middleware/auth.middleware';
+import { normalizePrefix } from '../../config';
 import {
   ForbiddenError,
   ProviderNotFoundError,
@@ -49,6 +50,7 @@ export type AppDependencies = {
   userRepo: UserRepository;
   providerRepo: ProviderRepository;
   templateRepo: TemplateRepository;
+  pathPrefix?: string;
 };
 
 export function createHonoApp(deps: AppDependencies): Hono {
@@ -62,8 +64,10 @@ export function createHonoApp(deps: AppDependencies): Hono {
     userRepo,
     providerRepo,
     templateRepo,
+    pathPrefix,
   } = deps;
-  const app = new Hono();
+  const normalizedPrefix = normalizePrefix(pathPrefix);
+  const app = normalizedPrefix ? new Hono().basePath(normalizedPrefix) : new Hono();
 
   const authMiddleware = authenticate(authUsecase, userRepo);
   const adminMiddleware = requireRole('admin');
@@ -93,9 +97,11 @@ export function createHonoApp(deps: AppDependencies): Hono {
     });
   };
 
+  const notifyRoutePrefix = normalizedPrefix ? `${normalizedPrefix}/notify/` : '/notify/';
+
   // 1. General CORS for non-notify routes
   app.use('*', async (c, next) => {
-    if (c.req.path.startsWith('/notify/')) {
+    if (c.req.path.startsWith(notifyRoutePrefix)) {
       return next();
     }
     return cors()(c, next);

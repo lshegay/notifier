@@ -1,0 +1,14 @@
+services:
+  notifier:
+    image: sh-registry.registry.twcstorage.ru/notifier:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notifier
+    restart: unless-stopped
+    ports:
+      - '${PORT:-3000}:${PORT:-3000}'
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data

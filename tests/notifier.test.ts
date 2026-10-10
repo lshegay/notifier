@@ -8,10 +8,12 @@ import { ProviderUsecase } from '../src/usecase/provider.usecase';
 import { TemplateUsecase } from '../src/usecase/template.usecase';
 import { NotifyUsecase } from '../src/usecase/notify.usecase';
 import { AuthUsecase } from '../src/usecase/auth.usecase';
+import { QuickRegisterUsecase } from '../src/usecase/quick-register.usecase';
 import { ProviderHandler } from '../src/delivery/http/handlers/provider.handler';
 import { TemplateHandler } from '../src/delivery/http/handlers/template.handler';
 import { NotifyHandler } from '../src/delivery/http/handlers/notify.handler';
 import { AuthHandler } from '../src/delivery/http/handlers/auth.handler';
+import { QuickRegisterHandler } from '../src/delivery/http/handlers/quick-register.handler';
 import { NotificationType, renderTemplate } from '../src/domain/notification';
 import { type TelegramProviderOptions, validateTelegramOptions } from '../src/domain/provider';
 import type { TelegramNotificationRepository } from '../src/usecase/notify.telegram.repository';
@@ -38,17 +40,24 @@ async function createTestApp(customTelegramRepo?: TelegramNotificationRepository
     jwtSecret: CONFIG.jwtSecret,
     tokenExpiresInSeconds: CONFIG.jwtExpiresIn,
   });
+  const quickRegisterUsecase = new QuickRegisterUsecase(
+    providerUsecase,
+    templateUsecase,
+    authUsecase
+  );
 
   const providerHandler = new ProviderHandler(providerUsecase);
   const templateHandler = new TemplateHandler(templateUsecase);
   const notifyHandler = new NotifyHandler(notifyUsecase);
   const authHandler = new AuthHandler(authUsecase);
+  const quickRegisterHandler = new QuickRegisterHandler(quickRegisterUsecase);
 
   const app = createHonoApp({
     providerHandler,
     templateHandler,
     notifyHandler,
     authHandler,
+    quickRegisterHandler,
     authUsecase,
     userRepo,
   });
@@ -931,5 +940,182 @@ describe('Notifier Application with Providers, Templates, Telegram Dispatcher, a
     expect(CONFIG.jwtExpiresIn).toBe(CONFIG.JWT_EXPIRES_IN);
     expect(CONFIG.host).toBe(CONFIG.HOST);
     expect(CONFIG.nodeEnv).toBe(CONFIG.NODE_ENV);
+  });
+
+  it('performs quick registration creating provider, template, user, and returns working notify token', async () => {
+    const { app, adminToken, sentTelegramMessages, providerRepo, templateRepo, authUsecase } =
+      await createTestApp();
+
+    // 1. Call POST /quick-register as admin with custom telegram options
+    const quickRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'order_status',
+        content: 'Status for #{{order_id}}: {{status}}',
+        template_type: 'telegram',
+        options: {
+          token: 'custom-telegram-bot-token',
+          chat_id: 'custom-chat-id-1234',
+          proxy: 'http://127.0.0.1:8080',
+        },
+      }),
+    });
+
+    expect(quickRes.status).toBe(201);
+    const body = (await quickRes.json()) as {
+      jwt_token: string;
+      template_id: string;
+      id: string;
+    };
+
+    expect(body.jwt_token).toBeDefined();
+    expect(body.template_id).toBeDefined();
+    expect(body.id).toBe(body.template_id);
+
+    // Verify token is onlyNotify and indefinite
+    const payload = await authUsecase.verifyToken(body.jwt_token);
+    expect(payload.onlyNotify).toBe(true);
+    expect(payload.exp).toBeUndefined();
+    expect(payload.template_ids).toContain(body.template_id);
+
+    // Verify provider and template names have '-telegram' suffix
+    const createdTemplate = await templateRepo.findById(body.template_id);
+    expect(createdTemplate).toBeDefined();
+    expect(createdTemplate?.name).toBe('order_status-telegram');
+    expect(createdTemplate?.content).toBe('Status for #{{order_id}}: {{status}}');
+
+    const createdProvider = await providerRepo.findById(createdTemplate!.provider_id);
+    expect(createdProvider).toBeDefined();
+    expect(createdProvider?.name).toBe('order_status-telegram');
+    expect(createdProvider?.type).toBe('telegram');
+    expect(createdProvider?.options.token).toBe('custom-telegram-bot-token');
+    expect(createdProvider?.options.chat_id).toBe('custom-chat-id-1234');
+    expect(createdProvider?.options.proxy).toBe('http://127.0.0.1:8080');
+
+    // 2. Immediately send notification with the returned jwt_token
+    const notifyRes = await app.request(`/notify/${body.template_id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${body.jwt_token}`,
+      },
+      body: JSON.stringify({
+        args: {
+          order_id: '5566',
+          status: 'DELIVERED',
+        },
+      }),
+    });
+
+    expect(notifyRes.status).toBe(200);
+    const notifyBody = (await notifyRes.json()) as {
+      success: boolean;
+      data: { renderedContent: string };
+    };
+    expect(notifyBody.success).toBe(true);
+    expect(notifyBody.data.renderedContent).toBe('Status for #5566: DELIVERED');
+
+    // Verify message sent to telegram repo with right options and rendered content
+    expect(sentTelegramMessages.length).toBe(1);
+    expect(sentTelegramMessages[0].options.token).toBe('custom-telegram-bot-token');
+    expect(sentTelegramMessages[0].options.chat_id).toBe('custom-chat-id-1234');
+    expect(sentTelegramMessages[0].text).toBe('Status for #5566: DELIVERED');
+
+    // 3. Quick register without passing options (uses defaults)
+    const quickDefaultRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'server_alerts',
+        content: 'Server Alert: {{msg}}',
+        template_type: 'telegram',
+      }),
+    });
+    expect(quickDefaultRes.status).toBe(201);
+    const defaultBody = (await quickDefaultRes.json()) as {
+      jwt_token: string;
+      template_id: string;
+    };
+    expect(defaultBody.jwt_token).toBeDefined();
+    expect(defaultBody.template_id).toBeDefined();
+
+    // 4. Authorization checks
+    // Unauthenticated -> 401
+    const unauthRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'test',
+        content: 'content',
+        template_type: 'telegram',
+      }),
+    });
+    expect(unauthRes.status).toBe(401);
+
+    // onlyNotify token -> 403
+    const forbiddenRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${body.jwt_token}`,
+      },
+      body: JSON.stringify({
+        name: 'test',
+        content: 'content',
+        template_type: 'telegram',
+      }),
+    });
+    expect(forbiddenRes.status).toBe(403);
+
+    // 5. Validation checks
+    // Unsupported template_type -> 400
+    const invalidTypeRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'test',
+        content: 'content',
+        template_type: 'email',
+      }),
+    });
+    expect(invalidTypeRes.status).toBe(400);
+
+    // Missing name -> 400
+    const missingNameRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        content: 'content',
+        template_type: 'telegram',
+      }),
+    });
+    expect(missingNameRes.status).toBe(400);
+
+    // Missing content -> 400
+    const missingContentRes = await app.request('/quick-register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: 'test',
+        template_type: 'telegram',
+      }),
+    });
+    expect(missingContentRes.status).toBe(400);
   });
 });

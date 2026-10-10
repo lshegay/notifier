@@ -3,6 +3,7 @@ import type { ProviderHandler } from './handlers/provider.handler';
 import type { TemplateHandler } from './handlers/template.handler';
 import type { NotifyHandler } from './handlers/notify.handler';
 import type { AuthHandler } from './handlers/auth.handler';
+import type { QuickRegisterHandler } from './handlers/quick-register.handler';
 import type { AuthUsecase } from '../../usecase/auth.usecase';
 import type { UserRepository } from '../../usecase/user.repository';
 import { validate } from './schemas/validator';
@@ -18,6 +19,7 @@ import {
 } from './schemas/template.schema';
 import { notifyParamSchema, notifyBodySchema } from './schemas/notify.schema';
 import { loginBodySchema, registerBodySchema } from './schemas/auth.schema';
+import { quickRegisterBodySchema } from './schemas/quick-register.schema';
 import {
   authenticate,
   optionalAuthenticate,
@@ -39,13 +41,21 @@ export type AppDependencies = {
   templateHandler: TemplateHandler;
   notifyHandler: NotifyHandler;
   authHandler: AuthHandler;
+  quickRegisterHandler: QuickRegisterHandler;
   authUsecase: AuthUsecase;
   userRepo: UserRepository;
 };
 
 export function createHonoApp(deps: AppDependencies): Hono {
-  const { providerHandler, templateHandler, notifyHandler, authHandler, authUsecase, userRepo } =
-    deps;
+  const {
+    providerHandler,
+    templateHandler,
+    notifyHandler,
+    authHandler,
+    quickRegisterHandler,
+    authUsecase,
+    userRepo,
+  } = deps;
   const app = new Hono();
 
   const authMiddleware = authenticate(authUsecase, userRepo);
@@ -102,6 +112,16 @@ export function createHonoApp(deps: AppDependencies): Hono {
     optionalAuthenticate(authUsecase, userRepo),
     validate('json', registerBodySchema),
     handleRegister
+  );
+
+  // --- Quick Register route (requires authentication + role == 'admin') ---
+  // POST /quick-register
+  app.post(
+    '/quick-register',
+    authMiddleware,
+    adminMiddleware,
+    validate('json', quickRegisterBodySchema),
+    (c) => quickRegisterHandler.quickRegister(c)
   );
 
   // --- Provider routes (require authentication + role == 'admin') ---

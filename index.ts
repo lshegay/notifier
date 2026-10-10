@@ -7,10 +7,12 @@ import { ProviderUsecase } from './src/usecase/provider.usecase';
 import { TemplateUsecase } from './src/usecase/template.usecase';
 import { NotifyUsecase } from './src/usecase/notify.usecase';
 import { AuthUsecase } from './src/usecase/auth.usecase';
+import { QuickRegisterUsecase } from './src/usecase/quick-register.usecase';
 import { ProviderHandler } from './src/delivery/http/handlers/provider.handler';
 import { TemplateHandler } from './src/delivery/http/handlers/template.handler';
 import { NotifyHandler } from './src/delivery/http/handlers/notify.handler';
 import { AuthHandler } from './src/delivery/http/handlers/auth.handler';
+import { QuickRegisterHandler } from './src/delivery/http/handlers/quick-register.handler';
 import { createHonoApp } from './src/delivery/http/app';
 import { startServer } from './src/delivery/http/server';
 import { CONFIG } from './src/config';
@@ -32,12 +34,18 @@ const authUsecase = new AuthUsecase(userRepository, {
   jwtSecret: CONFIG.jwtSecret,
   tokenExpiresInSeconds: CONFIG.jwtExpiresIn,
 });
+const quickRegisterUsecase = new QuickRegisterUsecase(
+  providerUsecase,
+  templateUsecase,
+  authUsecase
+);
 
 // 4. Delivery / HTTP layer (Hono handlers)
 const providerHandler = new ProviderHandler(providerUsecase);
 const templateHandler = new TemplateHandler(templateUsecase);
 const notifyHandler = new NotifyHandler(notifyUsecase);
 const authHandler = new AuthHandler(authUsecase);
+const quickRegisterHandler = new QuickRegisterHandler(quickRegisterUsecase);
 
 // 5. Create Hono application
 const app = createHonoApp({
@@ -45,6 +53,7 @@ const app = createHonoApp({
   templateHandler,
   notifyHandler,
   authHandler,
+  quickRegisterHandler,
   authUsecase,
   userRepo: userRepository,
 });

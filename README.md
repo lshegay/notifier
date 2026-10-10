@@ -92,6 +92,33 @@ All settings are centralized in the `CONFIG` object in [`src/config.ts`](src/con
   }
   ```
 
+#### Quick Register (`/quick-register`)
+
+_Requires `Authorization: Bearer <token>` and `role == 'admin'`._
+
+- **`POST /quick-register`** — One-step setup for instant notification dispatch. Automatically creates a provider named `<name>-<template_type>`, a template named `<name>-<template_type>`, a user with randomized credentials, and returns an indefinite `onlyNotify` JWT token together with the template ID:
+  ```json
+  {
+    "name": "order_alerts",
+    "content": "Order #{{order_id}} status: {{status}}",
+    "template_type": "telegram",
+    "options": {
+      "token": "bot-token",
+      "chat_id": "-1001234567890",
+      "proxy": "http://127.0.0.1:8080"
+    }
+  }
+  ```
+  Response (`201 Created`):
+  ```json
+  {
+    "jwt_token": "eyJhbGciOi...",
+    "template_id": "3c90c3ae-...",
+    "id": "3c90c3ae-..."
+  }
+  ```
+  _(The `options` field is optional; default placeholder values are used if omitted)._
+
 #### Providers (`/provider`)
 
 _Requires `Authorization: Bearer <token>` and `role == 'admin'`._
@@ -235,6 +262,33 @@ bunx oxlint
     "template_ids": ["<template-uuid>"]
   }
   ```
+
+#### Быстрая регистрация (`/quick-register`)
+
+_Требуется заголовок `Authorization: Bearer <token>` и `role == 'admin'`._
+
+- **`POST /quick-register`** — Быстрое создание всего необходимого в один запрос. Создает провайдер с именем `<name>-<template_type>`, шаблон с текстом сообщения и именем `<name>-<template_type>`, пользователя со случайными данными (логин, email, пароль), авторизует его с флагом `onlyNotify` и сразу возвращает бессрочный `jwt_token` и `template_id` для отправки уведомлений:
+  ```json
+  {
+    "name": "order_alerts",
+    "content": "Order #{{order_id}} status: {{status}}",
+    "template_type": "telegram",
+    "options": {
+      "token": "bot-token",
+      "chat_id": "-1001234567890",
+      "proxy": "http://127.0.0.1:8080"
+    }
+  }
+  ```
+  Ответ (`201 Created`):
+  ```json
+  {
+    "jwt_token": "eyJhbGciOi...",
+    "template_id": "3c90c3ae-...",
+    "id": "3c90c3ae-..."
+  }
+  ```
+  _(Параметр `options` опционален — если не передан, подставляются значения по умолчанию)._
 
 #### Providers (`/provider`)
 
